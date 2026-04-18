@@ -1,0 +1,39 @@
+[project]
+name = "agno-demo"
+version = "0.1.0"
+description = "Agno AI Chat Service with Zhipu AI (GLM)"
+readme = "README.md"
+requires-python = ">=3.11.13"
+dependencies = [
+    "agno>=2.2.3",
+    "fastapi[standard]>=0.120.2",
+    "openai>=2.32.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.2.2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.25.0",
+    "requests>=2.31.0",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+default = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["."]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+]
+filterwarnings = [
+    "ignore::pytest.PytestAssertRewriteWarning",
+]
