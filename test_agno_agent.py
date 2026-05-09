@@ -255,9 +255,9 @@ class TestAgentConfiguration:
         """Test that markdown is enabled"""
         assert agno_agent.markdown is True
 
-    def test_agent_no_database(self):
-        """Test that agent doesn't use database"""
-        assert agno_agent.db is None
+    def test_agent_has_database(self):
+        """Test that agent uses SQLite database"""
+        assert agno_agent.db is not None
 
     def test_agent_no_tools(self):
         """Test that agent has no tools configured"""

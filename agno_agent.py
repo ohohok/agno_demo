@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.os import AgentOS
+from agno.db.sqlite import SqliteDb
 from fastapi import HTTPException
 
 from knowledge_base import knowledge, knowledge_retriever
@@ -24,7 +25,10 @@ if not api_key:
     print("   Get your API key from: https://open.bigmodel.cn/")
     raise ValueError("ZHIPUAI_API_KEY is required but not set")
 
-# Create agent without tools and database (simple chat mode)
+# SQLite 数据库（存储对话历史）
+sqlite_db = SqliteDb(db_file="data/agent.db")
+
+# Create agent
 agno_agent = Agent(
     model=OpenAIChat(
         id="glm-4-flash",
@@ -33,8 +37,9 @@ agno_agent = Agent(
         temperature=0.7,
         max_tokens=2048,
     ),
+    db=sqlite_db,
     markdown=True,
-    add_history_to_context=False,
+    add_history_to_context=True,
 )
 
 # Create the AgentOS，传入 knowledge 实例以启用内置知识库管理
