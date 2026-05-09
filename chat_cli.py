@@ -1,19 +1,24 @@
 """
-Interactive chat mode for Agno Agent with Zhipu AI (GLM)
+Interactive chat mode for Agno Agent with Zhipu AI (GLM) - 带知识库支持
 Run this file to start a conversation with the agent in your terminal
 """
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
+from pypdf import PdfReader
+from docx import Document as DocxDocument
+
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 
-# Load environment variables from .env file
+from knowledge_base import knowledge, knowledge_retriever
+
 load_dotenv()
 
 
 def create_chat_agent():
     """Create an agent configured for chat with Zhipu AI"""
-    # Get API key from environment variable or prompt user
     api_key = os.getenv("ZHIPUAI_API_KEY")
     if not api_key:
         print("⚠️  Warning: ZHIPUAI_API_KEY environment variable not set!")
@@ -33,62 +38,176 @@ def create_chat_agent():
 
 
 def interactive_chat():
-    """Start an interactive chat session"""
+    """Start an interactive chat session with knowledge base support"""
     print("=" * 60)
-    print("🤖 Agno AI Assistant - Interactive Chat Mode")
+    print("🤖 Agno AI Assistant - 交互式聊天模式 (支持知识库)")
     print("=" * 60)
-    print("\n💡 Tips:")
-    print("   - Type your message and press Enter to chat")
-    print("   - Type 'exit', 'quit', or 'q' to end the conversation")
-    print("   - Type 'clear' to clear conversation history")
-    print("   - Using Zhipu AI GLM model (glm-4-flash)")
-    print("   - Make sure to set ZHIPUAI_API_KEY environment variable")
+    print("\n💡 命令说明:")
+    print("   - 直接输入消息开始聊天（自动检索知识库）")
+    print("   - /upload <文件路径>  : 上传文件到知识库")
+    print("   - /search <关键词>    : 搜索知识库")
+    print("   - /list              : 查看知识库内容")
+    print("   - clear              : 清除对话历史")
+    print("   - exit / quit / q    : 退出")
+    print("   - 使用智谱 AI GLM 模型 (glm-4-flash)")
     print("\n" + "=" * 60)
 
-    # Create the agent
     agent = create_chat_agent()
 
-    # Start chat loop
     while True:
         try:
-            # Get user input
             user_input = input("\n👤 You: ").strip()
 
-            # Check for exit commands
             if user_input.lower() in ['exit', 'quit', 'q']:
-                print("\n👋 Goodbye! Have a great day!")
+                print("\n👋 再见！祝你愉快！")
                 break
 
-            # Check for clear command
             if user_input.lower() == 'clear':
                 agent.session_state = {}
-                print("\n🗑️ Conversation history cleared!")
+                print("\n🗑️ 对话历史已清除！")
                 continue
 
-            # Skip empty input
+            if user_input.startswith("/"):
+                handle_kb_command(user_input)
+                continue
+
             if not user_input:
                 continue
 
-            # Get response from agent
-            print("\n🤖 Agent is thinking...")
-            response = agent.run(user_input)
+            # 自动检索知识库，有结果就用，没结果就正常回答
+            message = user_input
+            knowledge_sources = []
+            kb_results = knowledge_retriever.search(user_input)
+            if kb_results:
+                context_parts = []
+                for i, result in enumerate(kb_results, 1):
+                    context_parts.append(
+                        f"[知识库片段 {i}] (来源: {result['source']})\n{result['content']}"
+                    )
+                kb_context = "\n\n".join(context_parts)
+                message = (
+                    f"请基于以下知识库内容回答用户的问题。如果知识库中没有相关信息，请如实说明。\n\n"
+                    f"=== 知识库内容 ===\n{kb_context}\n=== 知识库内容结束 ===\n\n"
+                    f"用户问题: {user_input}"
+                )
+                knowledge_sources = list(set(r["source"] for r in kb_results))
 
-            # Print response
+            print("\n🤖 Agent is thinking...")
+            response = agent.run(message)
+
             if response and response.content:
                 print(f"\n🤖 Agent:\n{response.content}")
+                if knowledge_sources:
+                    print(f"\n📚 参考来源: {', '.join(knowledge_sources)}")
             else:
                 print("\n⚠️ Sorry, I couldn't generate a response.")
-                if response:
-                    print(f"DEBUG: Response object: {response}")
-                    if hasattr(response, 'tools') and response.tools:
-                        print(f"DEBUG: Agent called tools: {response.tools}")
 
         except KeyboardInterrupt:
             print("\n\n👋 Interrupted! Goodbye!")
             break
         except Exception as e:
             print(f"\n❌ Error: {str(e)}")
-            print("Please try again.")
+
+
+def read_file_safe(file_path: Path) -> str:
+    """安全读取文件，自动处理编码问题"""
+    raw = file_path.read_bytes()
+    # 尝试 UTF-8
+    try:
+        text = raw.decode("utf-8")
+        # 检查是否有 surrogate 字符
+        if any(0xD800 <= ord(c) <= 0xDFFF for c in text):
+            raise UnicodeDecodeError("utf-8", b"", 0, 0, "surrogate found")
+        return text
+    except UnicodeDecodeError:
+        pass
+    # 尝试 GBK（中文 Windows 常见编码）
+    try:
+        return raw.decode("gbk")
+    except UnicodeDecodeError:
+        pass
+    # 兜底：Latin-1 永远不会失败，用 replace 处理无效字节
+    return raw.decode("utf-8", errors="replace")
+
+
+def sanitize_text(text: str) -> str:
+    """清理文本中的 surrogate 字符和无效 Unicode"""
+    return "".join(c for c in text if not (0xD800 <= ord(c) <= 0xDFFF))
+
+
+def handle_kb_command(user_input: str):
+    """处理知识库相关命令"""
+    parts = user_input.split(maxsplit=1)
+    cmd = parts[0].lower()
+
+    if cmd == "/upload":
+        if len(parts) < 2:
+            print("❌ 用法: /upload <文件路径>")
+            return
+        file_path = Path(parts[1].strip())
+        if not file_path.exists():
+            print(f"❌ 文件不存在: {file_path}")
+            return
+        print(f"📤 正在上传并索引: {file_path.name}...")
+        try:
+            ext = file_path.suffix.lower()
+            if ext in (".txt", ".md", ".csv"):
+                text = read_file_safe(file_path)
+                text = sanitize_text(text)
+                # 写入清理后的临时文件
+                clean_path = file_path.with_suffix(".clean" + ext)
+                clean_path.write_text(text, encoding="utf-8")
+                knowledge.insert(path=str(clean_path), name=file_path.name)
+                clean_path.unlink()
+            elif ext == ".pdf":
+                reader = PdfReader(str(file_path))
+                text = "\n\n".join([p.extract_text() for p in reader.pages if p.extract_text()])
+                text = sanitize_text(text)
+                clean_path = file_path.with_suffix(".clean.txt")
+                clean_path.write_text(text, encoding="utf-8")
+                knowledge.insert(path=str(clean_path), name=file_path.name)
+                clean_path.unlink()
+            elif ext == ".docx":
+                doc = DocxDocument(str(file_path))
+                text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+                text = sanitize_text(text)
+                clean_path = file_path.with_suffix(".clean.txt")
+                clean_path.write_text(text, encoding="utf-8")
+                knowledge.insert(path=str(clean_path), name=file_path.name)
+                clean_path.unlink()
+            else:
+                print(f"❌ 不支持的文件类型: {ext}")
+                return
+
+            print(f"✅ 文件已上传到知识库")
+        except Exception as e:
+            print(f"❌ 上传失败: {e}")
+
+    elif cmd == "/search":
+        if len(parts) < 2:
+            print("❌ 用法: /search <关键词>")
+            return
+        query = parts[1].strip()
+        print(f"🔍 搜索: {query}")
+        results = knowledge_retriever.search(query)
+        if results:
+            for i, r in enumerate(results, 1):
+                print(f"\n--- 结果 {i} (来源: {r['source']}) ---")
+                print(r["content"][:200] + ("..." if len(r["content"]) > 200 else ""))
+        else:
+            print("📭 没有找到相关内容")
+
+    elif cmd == "/list":
+        try:
+            count = knowledge.vector_db.get_count()
+            print(f"📚 知识库信息:")
+            print(f"   向量文档块总数: {count}")
+        except Exception:
+            print("📚 知识库为空或未初始化")
+
+    else:
+        print(f"❌ 未知命令: {cmd}")
+        print("可用命令: /upload, /search, /list")
 
 
 if __name__ == "__main__":

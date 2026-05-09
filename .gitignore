@@ -290,6 +290,9 @@ $RECYCLE.BIN/
 *.sqlite
 *.sqlite3
 
+# Knowledge base data
+data/
+
 # Logs
 *.log
 logs/
