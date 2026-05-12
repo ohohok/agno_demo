@@ -293,6 +293,9 @@ $RECYCLE.BIN/
 # Knowledge base data
 data/
 
+# Benchmark results
+benchmark_results/
+
 # Logs
 *.log
 logs/

@@ -3,6 +3,8 @@ Interactive chat mode for Agno Agent with Zhipu AI (GLM) - 带知识库支持
 Run this file to start a conversation with the agent in your terminal
 """
 import os
+import time
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,9 +14,17 @@ from docx import Document as DocxDocument
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 
-from knowledge_base import knowledge, knowledge_retriever
+from knowledge_base import knowledge, knowledge_retriever, sanitize_text, upload_reader
 
 load_dotenv()
+
+# 性能日志
+perf_logger = logging.getLogger("perf")
+_perf_handler = logging.StreamHandler()
+_perf_handler.setFormatter(logging.Formatter("[PERF] %(message)s"))
+perf_logger.addHandler(_perf_handler)
+perf_logger.setLevel(logging.INFO)
+perf_logger.propagate = False
 
 
 def create_chat_agent():
@@ -44,7 +54,8 @@ def interactive_chat():
     print("=" * 60)
     print("\n💡 命令说明:")
     print("   - 直接输入消息开始聊天（自动检索知识库）")
-    print("   - /upload <文件路径>  : 上传文件到知识库")
+    print("   - /upload <文件路径>  : 上传文件到知识库（同名文件会自动覆盖旧数据）")
+    print("   - /delete <文档名>    : 从知识库删除指定文档")
     print("   - /search <关键词>    : 搜索知识库")
     print("   - /list              : 查看知识库内容")
     print("   - clear              : 清除对话历史")
@@ -75,25 +86,33 @@ def interactive_chat():
                 continue
 
             # 自动检索知识库，有结果就用，没结果就正常回答
-            message = user_input
+            t_total = time.perf_counter()
+            message = sanitize_text(user_input)
             knowledge_sources = []
-            kb_results = knowledge_retriever.search(user_input)
+            kb_results = knowledge_retriever.search(message, limit=10, threshold=0.4)
             if kb_results:
                 context_parts = []
                 for i, result in enumerate(kb_results, 1):
+                    clean_content = sanitize_text(result['content'])
                     context_parts.append(
-                        f"[知识库片段 {i}] (来源: {result['source']})\n{result['content']}"
+                        f"[知识库片段 {i}] (来源: {result['source']})\n{clean_content}"
                     )
                 kb_context = "\n\n".join(context_parts)
                 message = (
-                    f"请基于以下知识库内容回答用户的问题。如果知识库中没有相关信息，请如实说明。\n\n"
+                    f"请优先根据以下知识库内容来回答用户的问题。"
+                    f"即使知识库内容只是部分相关，也请结合这些内容给出有帮助的回答。"
+                    f"只有当知识库内容确实与问题完全无关时，再基于你自己的知识回答。\n\n"
                     f"=== 知识库内容 ===\n{kb_context}\n=== 知识库内容结束 ===\n\n"
-                    f"用户问题: {user_input}"
+                    f"用户问题: {message}"
                 )
                 knowledge_sources = list(set(r["source"] for r in kb_results))
 
             print("\n🤖 Agent is thinking...")
+            t_llm = time.perf_counter()
             response = agent.run(message)
+            llm_elapsed = (time.perf_counter() - t_llm) * 1000
+            total_elapsed = (time.perf_counter() - t_total) * 1000
+            perf_logger.info(f"llm_call: {llm_elapsed:.1f}ms | total_chat: {total_elapsed:.1f}ms | kb_used: {bool(kb_results)}")
 
             if response and response.content:
                 print(f"\n🤖 Agent:\n{response.content}")
@@ -130,11 +149,6 @@ def read_file_safe(file_path: Path) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def sanitize_text(text: str) -> str:
-    """清理文本中的 surrogate 字符和无效 Unicode"""
-    return "".join(c for c in text if not (0xD800 <= ord(c) <= 0xDFFF))
-
-
 def handle_kb_command(user_input: str):
     """处理知识库相关命令"""
     parts = user_input.split(maxsplit=1)
@@ -157,7 +171,7 @@ def handle_kb_command(user_input: str):
                 # 写入清理后的临时文件
                 clean_path = file_path.with_suffix(".clean" + ext)
                 clean_path.write_text(text, encoding="utf-8")
-                knowledge.insert(path=str(clean_path), name=file_path.name)
+                knowledge.insert(path=str(clean_path), name=file_path.name, reader=upload_reader)
                 clean_path.unlink()
             elif ext == ".pdf":
                 reader = PdfReader(str(file_path))
@@ -165,7 +179,7 @@ def handle_kb_command(user_input: str):
                 text = sanitize_text(text)
                 clean_path = file_path.with_suffix(".clean.txt")
                 clean_path.write_text(text, encoding="utf-8")
-                knowledge.insert(path=str(clean_path), name=file_path.name)
+                knowledge.insert(path=str(clean_path), name=file_path.name, reader=upload_reader)
                 clean_path.unlink()
             elif ext == ".docx":
                 doc = DocxDocument(str(file_path))
@@ -173,7 +187,7 @@ def handle_kb_command(user_input: str):
                 text = sanitize_text(text)
                 clean_path = file_path.with_suffix(".clean.txt")
                 clean_path.write_text(text, encoding="utf-8")
-                knowledge.insert(path=str(clean_path), name=file_path.name)
+                knowledge.insert(path=str(clean_path), name=file_path.name, reader=upload_reader)
                 clean_path.unlink()
             else:
                 print(f"❌ 不支持的文件类型: {ext}")
@@ -189,13 +203,29 @@ def handle_kb_command(user_input: str):
             return
         query = parts[1].strip()
         print(f"🔍 搜索: {query}")
-        results = knowledge_retriever.search(query)
+        results = knowledge_retriever.search(query, limit=15, threshold=0.0)  # 搜索时不过滤，显示所有结果
         if results:
             for i, r in enumerate(results, 1):
-                print(f"\n--- 结果 {i} (来源: {r['source']}) ---")
+                score_str = f" [相似度: {r['score']:.3f}]" if r.get('score') is not None else ""
+                print(f"\n--- 结果 {i} (来源: {r['source']}){score_str} ---")
                 print(r["content"][:200] + ("..." if len(r["content"]) > 200 else ""))
         else:
             print("📭 没有找到相关内容")
+
+    elif cmd == "/delete":
+        if len(parts) < 2:
+            print("❌ 用法: /delete <文档名>")
+            print("   示例: /delete 灯会知识库.md")
+            return
+        doc_name = parts[1].strip()
+        try:
+            success = knowledge.remove_vectors_by_name(doc_name)
+            if success:
+                print(f"✅ 已删除文档: {doc_name}")
+            else:
+                print(f"❌ 删除失败，未找到文档: {doc_name}")
+        except Exception as e:
+            print(f"❌ 删除失败: {e}")
 
     elif cmd == "/list":
         try:
@@ -207,7 +237,7 @@ def handle_kb_command(user_input: str):
 
     else:
         print(f"❌ 未知命令: {cmd}")
-        print("可用命令: /upload, /search, /list")
+        print("可用命令: /upload, /delete, /search, /list")
 
 
 if __name__ == "__main__":
