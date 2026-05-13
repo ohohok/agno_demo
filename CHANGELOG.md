@@ -2,6 +2,18 @@
 
 ## 2026-05-12
 
+### 项目重构
+
+- 新增 `app/` 目录：Agent 创建（agent.py）、CLI 入口（cli.py）
+- 新增 `core/` 目录：统一配置管理（config.py）、知识库模块（knowledge.py）
+- 新增 `tools/` 目录：工具以 Toolkit 形式组织，支持 Agent Tool Calling + API 调用
+- 新增 `api/` 目录：路由集中管理（chat、stream、stt）
+- 新增 `main.py` 主入口：`python main.py` 启动 API 服务，`--chat` 启动命令行聊天
+- 移除旧入口 `agno_agent.py`、`chat_cli.py`、`knowledge_base.py`，功能合并到新结构
+- 新增讯飞语音听写 Toolkit（tools/speech/iflytek.py）：支持 Agent 调用和 /api/stt 接口
+- 依赖新增 websockets（讯飞 WebSocket 协议）
+- .env 新增讯飞凭证配置项（IFLYTEK_APP_ID / API_KEY / API_SECRET）
+
 ### 性能优化
 
 - 添加全链路性能计时日志（KB 检索、LLM 调用、总耗时）
@@ -22,6 +34,13 @@
 - 添加 `sanitize_text()` 函数，清除 surrogate 字符（U+D800-U+DFFF）和无效控制字符
 - 用户输入和知识库内容在注入 LLM 上下文前统一净化
 - 文件读取支持 UTF-8 / GBK / Latin-1 多编码自动降级
+
+### Web UI
+
+- 新增自包含的 Web 聊天界面（`static/index.html`），访问 `/ui`
+- 支持流式聊天（SSE，逐 token 返回）
+- 麦克风录音按钮：点击录音 → 浏览器转换为 PCM 16kHz mono → POST `/api/stt` → 识别文字自动填入输入框
+- 支持会话保持、知识库来源标注、简单 Markdown 渲染
 
 ### CLI 增强
 

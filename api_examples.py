@@ -161,7 +161,7 @@ def example_6_python_requests_session():
 def main():
     """Run all examples"""
     print("\n🚀 Agno AI Chat API Examples")
-    print("Make sure the server is running: python agno_agent.py\n")
+    print("Make sure the server is running: python main.py\n")
     
     try:
         # Check if server is running
@@ -170,7 +170,7 @@ def main():
             print("⚠️  Server might not be running properly")
     except requests.exceptions.ConnectionError:
         print("❌ Cannot connect to server!")
-        print("Please start the server first: python agno_agent.py")
+        print("Please start the server first: python main.py")
         return
     
     # Run examples

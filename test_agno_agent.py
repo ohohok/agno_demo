@@ -17,7 +17,8 @@ from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 
 # Now import the application modules
-from agno_agent import app, agno_agent, ChatRequest, ChatResponse
+from app.api import app, agent as agno_agent
+from api.routes import ChatRequest, ChatResponse
 
 
 @pytest.fixture
@@ -259,9 +260,10 @@ class TestAgentConfiguration:
         """Test that agent uses SQLite database"""
         assert agno_agent.db is not None
 
-    def test_agent_no_tools(self):
-        """Test that agent has no tools configured"""
-        assert agno_agent.tools is None or len(agno_agent.tools) == 0
+    def test_agent_has_tools(self):
+        """Test that agent has tools configured (e.g. STT)"""
+        assert agno_agent.tools is not None
+        assert len(agno_agent.tools) > 0
 
 
 class TestIntegration:

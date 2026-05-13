@@ -1,7 +1,7 @@
 """
 性能基准测试脚本
 用法:
-  1. 启动服务: uv run python agno_agent.py
+  1. 启动服务: uv run python main.py
   2. 运行测试: uv run python benchmark.py
 
 输出结果到 benchmark_results/ 目录，方便优化前后对比。

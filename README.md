@@ -15,17 +15,30 @@
 
 ```
 agno_demo/
-├── agno_agent.py       # FastAPI 服务主入口（API + AgentOS UI）
-├── chat_cli.py         # 交互式命令行聊天工具
-├── knowledge_base.py   # 知识库管理模块（向量检索）
-├── test_agno_agent.py  # 单元测试
-├── api_examples.py     # API 调用示例
-├── pyproject.toml      # 项目依赖配置
-├── .env                # 环境变量（API Key 等）
-└── data/               # 运行时数据（已 gitignore）
-    ├── chromadb/       # 向量数据库（ChromaDB）
-    ├── uploads/        # 上传文件暂存
-    └── agent.db        # 对话历史数据库（SQLite）
+├── main.py                 # 主入口（python main.py 启动）
+├── knowledge_base.py       # 知识库管理模块（向量检索）
+├── test_agno_agent.py      # 单元测试
+├── api_examples.py         # API 调用示例
+├── benchmark.py            # 性能基准测试
+├── pyproject.toml          # 项目依赖配置
+├── .env                    # 环境变量（API Key 等）
+├── static/
+│   └── index.html          # Web 聊天界面（含语音录音）
+├── app/
+│   ├── agent.py            # Agent 创建与工具注册
+│   └── cli.py              # CLI 入口
+├── api/
+│   └── routes.py           # API 路由（chat、stream、stt）
+├── core/
+│   ├── config.py           # 统一配置管理
+│   └── knowledge.py        # 知识库模块
+├── tools/
+│   └── speech/
+│       └── iflytek.py      # 讯飞语音听写 Toolkit
+└── data/                   # 运行时数据（已 gitignore）
+    ├── chromadb/           # 向量数据库（ChromaDB）
+    ├── uploads/            # 上传文件暂存
+    └── agent.db            # 对话历史数据库（SQLite）
 ```
 
 ## 快速开始
@@ -48,18 +61,20 @@ API Key 获取地址：https://open.bigmodel.cn/
 
 ### 3. 启动服务
 
-**Web 服务（含 AgentOS UI）：**
+**API 服务（默认）：**
 
 ```bash
-uv run python agno_agent.py
+uv run python main.py
 ```
 
-启动后访问 http://localhost:7777 打开 AgentOS 管理界面。
+启动后：
+- http://localhost:7777/ui — Web 聊天界面（含语音录音）
+- http://localhost:7777 — AgentOS API 信息
 
 **交互式命令行聊天：**
 
 ```bash
-uv run python chat_cli.py
+uv run python main.py --chat
 ```
 
 ## API 接口
@@ -100,13 +115,14 @@ curl -X POST http://localhost:7777/api/chat \
 curl http://localhost:7777/api/health
 ```
 
-### AgentOS UI
+### Web UI
 
-启动服务后访问 http://localhost:7777，可通过 Web 界面：
-- 上传文档到知识库
-- 管理知识库文档（查看、删除）
-- 搜索知识库内容
-- 与 AI 对话
+启动服务后访问 http://localhost:7777/ui：
+- 与 AI 对话（流式逐 token 返回）
+- 麦克风语音输入（自动识别并填入聊天框）
+- 知识库自动检索增强
+
+AgentOS API 信息：http://localhost:7777
 
 ## 知识库功能
 
@@ -127,7 +143,7 @@ curl http://localhost:7777/api/health
 **2. CLI 命令上传**
 
 ```bash
-uv run python chat_cli.py
+uv run python main.py --chat
 > /upload /path/to/document.md
 ```
 
